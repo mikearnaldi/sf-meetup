@@ -1,4 +1,4 @@
-import { Console, Effect, Exit, Layer, Queue, Scope } from "effect"
+import { Effect, Exit, Layer, Queue, Scope } from "effect"
 import * as Http from "node:http"
 import { HttpConfig } from "./config"
 
@@ -16,58 +16,67 @@ export const HttpLayer: <R>(
   }) => Effect.Effect<R, never, void>
 ) =>
   Layer.scopedDiscard(
-    Console.consoleWith(({ unsafe: unsafeConsole }) =>
-      Effect.gen(function*(_) {
-        const { host: hostname, port } = yield* _(
-          Effect.config(HttpConfig),
-          Effect.orDie
-        )
+    Effect.gen(function*(_) {
+      const { host: hostname, port } = yield* _(
+        Effect.config(HttpConfig),
+        Effect.orDie
+      )
 
-        const requests = yield* _(Effect.acquireRelease(
-          Queue.unbounded<HttpMessage>(),
-          (requests) => Queue.shutdown(requests)
-        ))
+      const requests = yield* _(Effect.acquireRelease(
+        Queue.unbounded<HttpMessage>(),
+        (requests) => Queue.shutdown(requests)
+      ))
 
-        const scope = yield* _(Effect.acquireRelease(
-          Scope.make(),
-          (scope) => Scope.close(scope, Exit.unit)
-        ))
+      const scope = yield* _(Effect.acquireRelease(
+        Scope.make(),
+        (scope) => Scope.close(scope, Exit.unit)
+      ))
 
-        yield* _(
-          Queue.take(requests),
-          Effect.flatMap((arg) =>
-            handler(arg).pipe(
-              Effect.sandbox,
-              Effect.catchAll(Effect.logError),
-              Effect.scoped,
-              Effect.forkIn(scope)
-            )
-          ),
-          Effect.forever,
-          Effect.interruptible,
-          Effect.forkScoped
-        )
+      yield* _(
+        Queue.take(requests),
+        Effect.flatMap((arg) =>
+          Effect.sandbox(handler(arg)).pipe(
+            Effect.catchAll((cause) =>
+              Effect.flatMap(Effect.logError(cause), () =>
+                Effect.sync(() => {
+                  arg.res.end(500)
+                }))
+            ),
+            Effect.scoped,
+            Effect.forkIn(scope)
+          )
+        ),
+        Effect.forever,
+        Effect.interruptible,
+        Effect.forkScoped
+      )
 
-        const server = yield* _(Effect.acquireRelease(
-          Effect.sync(() =>
-            Http.createServer((req, res) => {
-              if (!Queue.unsafeOffer(requests, { req, res })) {
-                res.end(500)
+      const server = yield* _(Effect.acquireRelease(
+        Effect.sync(() =>
+          Http.createServer((req, res) => {
+            if (!Queue.unsafeOffer(requests, { req, res })) {
+              res.end(500)
+            }
+          })
+        ),
+        (server) =>
+          Effect.async<never, never, void>((resume) => {
+            server.close((err) => {
+              if (err) {
+                resume(Effect.die(err))
+              } else {
+                resume(Effect.logInfo(`Server closed`))
               }
             })
-          ),
-          (server) => Effect.sync(() => server.close())
-        ))
+          })
+      ))
 
-        yield* _(
-          Effect.sync(() =>
-            server.listen(
-              port,
-              hostname,
-              () => unsafeConsole.log(`Server listening on port ${hostname}:${port}`)
-            )
-          )
-        )
-      })
-    )
+      yield* _(
+        Effect.async<never, never, void>((resume) => {
+          server.listen(port, hostname, () => resume(Effect.unit))
+        })
+      )
+
+      yield* _(Effect.logInfo(`Server listening on port ${hostname}:${port}`))
+    })
   )

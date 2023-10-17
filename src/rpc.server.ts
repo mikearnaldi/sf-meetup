@@ -28,8 +28,9 @@ const ServerLive = HttpLayer(({ req, res }) => handler(req, res))
 
 const MainLive = Layer.provide(TracingLive, ServerLive)
 
-Layer.launch(MainLive).pipe(
+const runnable = Layer.launch(MainLive).pipe(
   Effect.sandbox,
-  Effect.catchAll(Effect.logError),
-  NodeRuntime.runMain
+  Effect.catchAll(Effect.logError)
 )
+
+NodeRuntime.runMain(runnable)

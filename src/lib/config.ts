@@ -9,7 +9,7 @@ export const HttpConfig = Config.nested("HTTP")(
 
 export const HoneycombConfig = Config.nested("HONEYCOMB")(
   Config.all({
-    dataset: Config.string("DATASET"),
-    apiKey: Config.secret("API_KEY")
+    apiKey: Config.secret("API_KEY"),
+    serviceName: Config.string("SERVICE_NAME")
   })
 )

@@ -4,10 +4,8 @@
   "description": "",
   "main": "dist/main.cjs",
   "scripts": {
-    "build": "rollup -c rollup.config.mjs",
+    "build": "pnpm clean & rollup -c rollup.config.mjs",
     "watch": "pnpm build --watch",
-    "run:server": "node dist/rpc.server.js",
-    "run:client": "node dist/rpc.client.js",
     "clean": "rm -rf dist"
   },
   "keywords": [],

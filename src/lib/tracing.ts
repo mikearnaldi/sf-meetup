@@ -8,12 +8,15 @@ import { PeriodicExportingMetricReader } from "@opentelemetry/sdk-metrics"
 import { ConfigSecret, Effect, Layer } from "effect"
 import { HoneycombConfig } from "./config"
 
-const HoneycombLive = Layer.unwrapEffect(
+export const TracingLive = Layer.unwrapEffect(
   Effect.gen(function*(_) {
-    const { apiKey, dataset } = yield* _(Effect.config(HoneycombConfig))
+    const { apiKey, serviceName } = yield* _(
+      Effect.config(HoneycombConfig),
+      Effect.orDie
+    )
     const headers = {
       "x-honeycomb-team": ConfigSecret.value(apiKey),
-      "x-honeycomb-dataset": dataset
+      "x-honeycomb-dataset": serviceName
     }
     const metricExporter = new OTLPMetricExporter({
       url: "https://api.honeycomb.io/v1/metrics",
@@ -23,23 +26,20 @@ const HoneycombLive = Layer.unwrapEffect(
       url: "https://api.honeycomb.io/v1/traces",
       headers
     })
-    return Layer.mergeAll(
-      NodeSdk.layer(() =>
-        NodeSdk.config({
-          traceExporter
-        })
-      ),
-      OtelMetrics.layer(() =>
-        new PeriodicExportingMetricReader({
-          exporter: metricExporter,
-          exportIntervalMillis: 1000
-        })
+    const metricReader = new PeriodicExportingMetricReader({
+      exporter: metricExporter,
+      exportIntervalMillis: 1000
+    })
+    const sdkConfig = NodeSdk.config({
+      traceExporter
+    })
+    return Layer.provide(
+      Resource.layer({ serviceName }),
+      Layer.mergeAll(
+        NodeSdk.layer(() => sdkConfig),
+        OtelMetrics.layer(() => metricReader),
+        Tracer.layer
       )
     )
   })
-)
-
-export const TracingLive = Layer.provide(
-  Resource.layer({ serviceName: "my-rpc-demo" }),
-  Layer.mergeAll(HoneycombLive, Tracer.layer)
 )
